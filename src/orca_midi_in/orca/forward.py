@@ -10,8 +10,10 @@ class OrcaCommandForwarder:
                  port: int = 49160,
                  ip: str = "localhost",
                  midi_channel: int = 0,
-                 bpm=120,
-                 midi_cc_offset: int = 0):
+                 bpm: int = 120,
+                 midi_cc_offset: int = 0,
+                 verbose: bool = False):
+        self._verbose = verbose
         self.ip = ip
         self.port = port
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -20,8 +22,13 @@ class OrcaCommandForwarder:
         self.bpm = self.set_bpm(bpm)
 
     def send_cmd(self, cmd: str):
-        print(cmd)
+        if self._verbose:
+            print(cmd)
         self.sock.sendto(cmd.encode(), (self.ip, self.port))
+
+    def find(self, string: str):
+        cmd = f"find:{string}"
+        return self.send_cmd(cmd)
 
     def select(self, x: int, y: int, width: int = 0, height: int = 0):
         cmd = f"select:{x};{y};{width};{height}"
@@ -39,19 +46,31 @@ class OrcaCommandForwarder:
                         with_velocity: bool = True,
                         with_length: bool = True,
                         with_midi_operator: bool = True,
-                        placeholder: str = "."):
+                        ):
         glyph = GLYPHS[(event.key - 21) % 12]
         octave = -1 + (event.key - (event.key % 12)) // 12
         velocity = midi_to_base_36(event.value, min=1)
         length = seconds_to_frames(event.time_delta, self.bpm)
-        write_str = \
-            (":" if with_midi_operator else "") + \
-            str(self.midi_channel) + \
-            (f"{octave}" if with_octave else placeholder) + \
-            glyph + \
-            (velocity if with_velocity else placeholder) + \
-            (length if with_length else placeholder)
-        self.write(write_str, x, y)
+        if with_midi_operator:
+            write_chars = [
+                ":",
+                str(self.midi_channel),
+                str(octave) if with_octave else None,
+                glyph,
+                velocity if with_velocity else None,
+                length if with_length else None
+            ]
+            # If nothing is to the right of a char, we don't need to fill with "."
+            # This way, we avoid overwriting nearby cells on the grid.
+            has_right_char = False
+            for i, char in reversed(list(enumerate(write_chars))):
+                if char is not None:
+                    has_right_char = True
+                if char is None:
+                    write_chars[i] = "." if has_right_char else ""
+        else:
+            write_chars = glyph
+        self.write("".join(write_chars), x, y)
 
     def write_midi_cc(self,
                       event: MidiEvent,

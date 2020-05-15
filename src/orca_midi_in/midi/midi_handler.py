@@ -23,9 +23,10 @@ class MidiEvent:
 
 
 class MidiHandler:
-    def __init__(self, port: int):
+    def __init__(self, port: int, verbose: bool = False):
         self._port_name = MIDI_PORTS[port]
         self._midi_in = None
+        self._verbose = verbose
 
     def __enter__(self):
         self._midi_in = open_midiinput(self._port_name)[0]
@@ -38,6 +39,8 @@ class MidiHandler:
     def _callback_wrapper(self, tup: Tuple, _data: Any):
         event, time_delta = tup
         event = MidiEvent(*event, time_delta)
+        if self._verbose:
+            print(event)
         return self.midi_event_callback(event)
 
     def midi_event_callback(self, event: MidiEvent) -> None:
