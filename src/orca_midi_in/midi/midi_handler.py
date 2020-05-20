@@ -1,62 +1,60 @@
-import time
-from enum import Enum
-from typing import Any, Tuple
-from dataclasses import dataclass
+from typing import List
 
-from rtmidi import MidiIn
-from rtmidi.midiutil import open_midiinput
+import mido
+from mido.backends.rtmidi import Input
 
-MIDI_PORTS = MidiIn().get_ports()
-MIDI_MESSAGES = {
-    144: "note_on",
-    128: "note_off",
-    176: "cc",
-}
-
-
-@dataclass
-class MidiEvent:
-    message_id: int
-    key: int
-    value: int
-    time_delta: float = 0.0
+MIDI_PORTS = mido.get_input_names()
 
 
 class MidiHandler:
-    def __init__(self, port: int, verbose: bool = False):
-        self._port_name = MIDI_PORTS[port]
-        self._midi_in = None
+    def __init__(self, port_ids: List[int], verbose: bool = False):
+        self._port_ids = port_ids
+        self._midi_ins = []
         self._verbose = verbose
+        self.running = False
 
-    def __enter__(self):
-        self._midi_in = open_midiinput(self._port_name)[0]
-        self._midi_in.set_callback(self._callback_wrapper)
+    def run(self):
+        self.running = True
+        self._midi_ins = self._open_ports()
+        while self.running:
+            for midi_in in self._midi_ins:
+                self._handle_midi_in(midi_in)
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self._midi_in.cancel_callback()
-        self._midi_in.close_port()
+    def _open_ports(self) -> List[Input]:
+        midi_ins = []
+        for port_id in self._port_ids:
+            midi_in = mido.open_input(MIDI_PORTS[port_id])
+            midi_in.port_id = port_id
+            midi_ins.append(midi_in)
+        return midi_ins
 
-    def _callback_wrapper(self, tup: Tuple, _data: Any):
-        event, time_delta = tup
-        event = MidiEvent(*event, time_delta)
-        if self._verbose:
-            print(event)
-        return self.midi_event_callback(event)
+    def _handle_midi_in(self, midi_in: Input):
+        """
+        Polls for a message and passes it to the method with the same name as its .type attr
+        """
+        msg = midi_in.poll()
+        if msg is not None:
+            if self._verbose:
+                print(midi_in.port_id, MIDI_PORTS[midi_in.port_id], msg)
+            self._route_msg_to_method(midi_in, msg)
 
-    def midi_event_callback(self, event: MidiEvent) -> None:
-        message_name = MIDI_MESSAGES[event.message_id]
-        return self.__getattribute__(message_name)(event)
+    def _route_msg_to_method(self, midi_in: Input, msg: mido.Message):
+        return getattr(self, msg.type)(midi_in, msg)
 
-    def note_on(self, event: MidiEvent) -> None:
+    def stop(self):
+        self.running = False
+        for midi_in in self._midi_ins:
+            midi_in.close()
+
+    def note_on(self, midi_in: Input, msg: mido.Message) -> None:
         pass
 
-    def note_off(self, event: MidiEvent) -> None:
+    def note_off(self, midi_in: Input, msg: mido.Message) -> None:
         pass
 
-    def cc(self, event: MidiEvent) -> None:
-        print(event)
+    def control_change(self, midi_in: Input, msg: mido.Message) -> None:
+        pass
 
 
 if __name__ == "__main__":
-    with MidiHandler(0):
-        time.sleep(10)
+    MidiHandler([0, 2]).run()

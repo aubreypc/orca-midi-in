@@ -1,8 +1,9 @@
 import socket
 
+from mido import Message
+
 from orca_midi_in.orca.glyph import GLYPHS
 from orca_midi_in.orca.number import midi_to_base_36, seconds_to_frames, NUMBERS
-from src.orca_midi_in.midi.midi_handler import MidiEvent
 
 
 class OrcaCommandForwarder:
@@ -12,7 +13,8 @@ class OrcaCommandForwarder:
                  midi_channel: int = 0,
                  bpm: int = 120,
                  midi_cc_offset: int = 0,
-                 verbose: bool = False):
+                 verbose: bool = False,
+                 quiet: bool = False):
         self._verbose = verbose
         self.ip = ip
         self.port = port
@@ -20,6 +22,8 @@ class OrcaCommandForwarder:
         self.midi_channel = midi_channel
         self.midi_cc_offset = self.set_midi_cc_offset(midi_cc_offset)
         self.bpm = self.set_bpm(bpm)
+        if quiet:
+            self.send_cmd("stop")
 
     def send_cmd(self, cmd: str):
         if self._verbose:
@@ -39,7 +43,7 @@ class OrcaCommandForwarder:
         return self.send_cmd(cmd)
 
     def write_midi_note(self,
-                        event: MidiEvent,
+                        msg: Message,
                         x: int = None,
                         y: int = None,
                         with_octave: bool = True,
@@ -47,10 +51,11 @@ class OrcaCommandForwarder:
                         with_length: bool = True,
                         with_midi_operator: bool = True,
                         ):
-        glyph = GLYPHS[(event.key - 21) % 12]
-        octave = -1 + (event.key - (event.key % 12)) // 12
-        velocity = midi_to_base_36(event.value, min=1)
-        length = seconds_to_frames(event.time_delta, self.bpm)
+        glyph = GLYPHS[(msg.note - 21) % 12]
+        octave = -1 + (msg.note - (msg.note % 12)) // 12
+        velocity = midi_to_base_36(msg.velocity, min=1)
+        # TODO: fix length after API change
+        #length = seconds_to_frames(event.time_delta, self.bpm)
         if with_midi_operator:
             write_chars = [
                 ":",
@@ -58,7 +63,7 @@ class OrcaCommandForwarder:
                 str(octave) if with_octave else None,
                 glyph,
                 velocity if with_velocity else None,
-                length if with_length else None
+                #length if with_length else None
             ]
             # If nothing is to the right of a char, we don't need to fill with "."
             # This way, we avoid overwriting nearby cells on the grid.
@@ -73,12 +78,12 @@ class OrcaCommandForwarder:
         self.write("".join(write_chars), x, y)
 
     def write_midi_cc(self,
-                      event: MidiEvent,
+                      msg: Message,
                       x: int = None,
                       y: int = None,
                       with_midi_cc_operator: bool = False):
-        value = midi_to_base_36(event.value)
-        knob = NUMBERS[event.key % 36]
+        value = midi_to_base_36(msg.value)
+        knob = NUMBERS[msg.control % 36]
         write_str = value
         if with_midi_cc_operator:
             write_str = f"!{self.midi_channel}{knob}{value}"
